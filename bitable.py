@@ -30,8 +30,7 @@ class BeeEye:
                                        FROM zzzTemp.dbo.NK_SKU_elasticity sku_elas
                                        LEFT JOIN BeeEye.dbo.Item ON Item.RezonItemID = sku_elas.SKU
                                        --LEFT JOIN BeeEye.dbo.BrandPrx ON Item.BrandID = BrandPrx.ID
-                                       --- LEFT JOIN BeeEye.dbo.ItemTypeHierarchyPrx
-                                       ON ItemTypeHierarchyPrx.TypeID = Item.ItemGroupID""")
+                                       --LEFT JOIN BeeEye.dbo.ItemTypeHierarchyPrx ON ItemTypeHierarchyPrx.TypeID = Item.ItemGroupID""")
             self.cursor.commit()
             self.skuInit = True
             return

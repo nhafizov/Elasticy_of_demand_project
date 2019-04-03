@@ -4,8 +4,8 @@ bi_sql_queries = {
     1: ["""drop table if exists #Sales%s
            SELECT #SKU.SKU, COUNT(DISTINCT ClientOrder.ID) AS Sales%s
            INTO #Sales%s
-           FROM ClientOrder
-           JOIN OrderItemEventNew ON OrderItemEventNew.ClientOrderID = ClientOrder.ID
+           FROM BeeEye.dbo.ClientOrder
+           JOIN BeeEye.dbo.OrderItemEventNew ON OrderItemEventNew.ClientOrderID = ClientOrder.ID
            JOIN #SKU ON #SKU.ItemID = OrderItemEventNew.ItemID
            WHERE OrderItemEventNew.ActionTypeID = 179832750000
            AND OrderItemEventNew.Date BETWEEN dateadd(day,datediff(day,%s,GETDATE()),0) AND dateadd(day,datediff(day,%s-1,GETDATE()),0)
