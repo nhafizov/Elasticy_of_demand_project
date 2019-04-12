@@ -21,6 +21,7 @@ class BeeEye:
             self.exception_load = "Can't load temporary table %s"
             self.pyodbc_conn = pyodbc.connect(self.conn_info)
             self.cursor = self.pyodbc_conn.cursor()
+            self.connected = True
         except:
             raise Exception("Can't connect to the database")
 
