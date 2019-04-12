@@ -4,48 +4,39 @@ from bi_sql_queries import *
 
 
 class BeeEye:
-    def __init__(self, days=[0, 1, 2], elasticity_SKU=False, initialize_columns=[1, 1, 1, 1, 0]):
+    def __init__(self, days=[0, 1, 2], predict_SKU=False, initialize_columns=[1, 1, 1, 1]):
         try:
-            self.days = []
             self.server = 'bidb04z1.o3.ru'
             self.database = 'BeeEye'
             self.username = 'spros'
             self.password = 'spros'
             self.conn_info = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=' + self.server + ';DATABASE=' + self.database + ';UID=' + self.username + ';PWD=' + self.password
             self.skuInit = False
+            # дни, для которых нужно сделать прогноз
             self.days = days
+            # признаки, которые будут юзаться
             self.initializeColumns = initialize_columns
+            self.predict_SKU = predict_SKU
             self.exception_create = "Can't create temporary table %s"
             self.exception_load = "Can't load temporary table %s"
             self.pyodbc_conn = pyodbc.connect(self.conn_info)
             self.cursor = self.pyodbc_conn.cursor()
-            self.elasticity_SKU = elasticity_SKU
         except:
             raise Exception("Can't connect to the database")
 
+    # Функция для инициализации SKU написана отдельно по следующим причинам:
+    # 1) SKU - это не фича
+    # 2) таблица SKU является основной таблицой для сбора признаков (без нее фичи не скачать)
+    # 3) Нужно гарантировать создание этой таблицы
     def __set_sku(self):
-        if self.elasticity_SKU:
-            self.cursor.execute("""SELECT sku_elas.SKU---, ItemTypeHierarchyPrx.Type AS CatType, BrandPrx.Name AS BrandName, Item.ID AS ItemID
-                                       INTO #SKU
-                                       FROM zzzTemp.dbo.NK_SKU_elasticity sku_elas
-                                       LEFT JOIN BeeEye.dbo.Item ON Item.RezonItemID = sku_elas.SKU
-                                       --LEFT JOIN BeeEye.dbo.BrandPrx ON Item.BrandID = BrandPrx.ID
-                                       --LEFT JOIN BeeEye.dbo.ItemTypeHierarchyPrx ON ItemTypeHierarchyPrx.TypeID = Item.ItemGroupID""")
-            self.cursor.commit()
-            self.skuInit = True
-            return
+        "Инициализирует временную таблицу SKU"
         if self.skuInit:
             return
         try:
-            self.cursor.execute("""drop table if exists #SKU
-                SELECT top 500 Item.RezonItemID AS SKU, ItemTypeHierarchyPrx.Type AS CatType, BrandPrx.Name AS BrandName, Item.ID as ItemID
-                INTO #SKU
-                FROM BeeEye.dbo.Item
-                JOIN BeeEye.dbo.BrandPrx
-                ON Item.BrandID = BrandPrx.ID
-                JOIN BeeEye.dbo.ItemTypeHierarchyPrx
-                ON ItemTypeHierarchyPrx.TypeID = Item.ItemGroupID
-                WHERE Item.EnabledForSale = 1 AND Item.FreeQty > 0""")
+            # self.predictSKU == 1 тогда и только тогда, когда таблица со сторонними SKU непуста
+            # другими словами, в данном случае мы выкачиваем данные для прогноза по этим SKU
+            # self.predictSKU == 0 когда мы хотим выкачить данные для обучения модели
+            self.cursor.execute(bi_sku_initialized_query[self.predict_SKU])
             self.cursor.commit()
             self.skuInit = True
         except:
@@ -60,6 +51,7 @@ class BeeEye:
             raise Exception((self.exception_load % bi_table[0][0]))
 
     def __set_feature(self, feature_id):
+        "Создает временную таблицу bi_table[feature_id][0] в BeeEye вида (SKU, bi_table[feature_id][1:])"
         if not self.skuInit:
             raise Exception("SKU table is not initialized")
         if feature_id not in bi_table:
@@ -73,23 +65,27 @@ class BeeEye:
                     if day == 0:
                         # тут мб вообще это не нужно, не знаю пока
                         continue
+                    # генерируем кол-во %s day (day, day, ...)
                     str_format_days_tuple = [day] * bi_sql_queries[feature_id][1]
                     self.cursor.execute((bi_sql_queries[feature_id][0] % tuple(str_format_days_tuple)))
                     self.cursor.commit()
             else:
-                self.cursor.execute(bi_sql_queries[feature_id])
+                self.cursor.execute(bi_sql_queries[feature_id][0])
                 self.cursor.commit()
         except:
             raise Exception(self.exception_create % bi_table[feature_id][0])
 
-    def get_feature(self, id):
+    def get_feature(self, feature_id):
+        "Каждую временную табличку можно выкачить отдельно"
         try:
-            sql_query = "select * from %s" % bi_table[id][0]
+            sql_query = "select * from %s" % bi_table[feature_id][0]
             return pd.read_sql(sql_query, self.pyodbc_conn)
         except:
-            raise Exception(self.exception_load % bi_table[id][0])
+            raise Exception(self.exception_load % bi_table[feature_id][0])
 
-    def get_result_query(self):
+    # генерирует строку для создания временной таблицы, в которую объединяются все остальные
+    def __get_result_query(self):
+        "Возвращает строку для создания финальной таблицы в BeeEye"
         query = """drop table if exists #result\nselect """
         group_by_columns = """"""
         for i in range(len(self.initializeColumns)):
@@ -120,23 +116,24 @@ class BeeEye:
         query += "group by " + group_by_columns
         return query
 
+    # создает таблицу
     def __set_result(self):
         try:
             self.__set_sku()
             for i in range(1, len(self.initializeColumns)):
                 if self.initializeColumns[i]:
                     self.__set_feature(i)
-            # print(self.get_result_query())
-            self.cursor.execute(self.get_result_query())
+            # print(self.__get_result_query())
+            self.cursor.execute(self.__get_result_query())
         except:
-            raise Exception("Can't create #result table")
+            raise Exception("Can't create temporary table #Result")
 
     def get_result(self):
         try:
             self.__set_result()
             return pd.read_sql("""SELECT * FROM #result""", self.pyodbc_conn)
         except:
-            raise Exception("Can't load #result table")
+            raise Exception("Can't load temporary table #result")
 
     def __del__(self):
         self.cursor.close()

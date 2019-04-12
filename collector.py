@@ -16,7 +16,7 @@ class SKU_collector:
         self.dataframe = None
 
     def load_sku(self):
-        BI_table = BeeEye(elasticity_SKU=True)
+        BI_table = BeeEye(predict_SKU=True)
         self.dataframe = BI_table.get_result()
 
     def get_data(self):
