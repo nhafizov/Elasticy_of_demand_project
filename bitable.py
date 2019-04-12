@@ -4,7 +4,7 @@ from bi_sql_queries import *
 
 
 class BeeEye:
-    def __init__(self, days=[0, 1, 2], predict_SKU=False, initialize_columns=[1, 1, 1, 1]):
+    def __init__(self, days=[1], predict_SKU=False, initialize_columns=[1, 1, 1, 1]):
         try:
             self.server = 'bidb04z1.o3.ru'
             self.database = 'BeeEye'
