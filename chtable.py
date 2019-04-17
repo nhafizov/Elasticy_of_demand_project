@@ -1,11 +1,12 @@
 from clickhouse_driver.client import Client
 import ch_sql_queries
 
+
 # Добавить исторические данные следующим образом:
 # Выкачивать датафрейм вида SKU-RequiredFeature-Дата
 # Потом парсить этот датафрейм и группировать по дням в питоне
 class ClickHouse:
-    def __init__(self, days=[1, 2, 3, 4]):
+    def __init__(self, days=[2]):
         self.ckhouse_ip = 'b.clickhouse.s.o3.ru'
         self.client = Client(self.ckhouse_ip)
         self.features = ['ViewsQty', 'CartQty']
@@ -27,3 +28,7 @@ class ClickHouse:
 
     def __del__(self):
         self.client.disconnect()
+
+
+data = ClickHouse().get_feature(0)
+print(data)

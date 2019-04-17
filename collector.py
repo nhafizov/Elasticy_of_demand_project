@@ -1,6 +1,5 @@
 import pyodbc
 from bitable import BeeEye
-from chtable import ClickHouse
 
 
 # Добавить ClickHouse

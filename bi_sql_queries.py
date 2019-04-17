@@ -27,7 +27,7 @@ bi_sql_queries = {
            WHERE OrderItemEventNew.ActionTypeID = 179832750000
            AND OrderItemEventNew.Date BETWEEN dateadd(day,datediff(day,%s,GETDATE()),0) AND dateadd(day,datediff(day,%s-1,GETDATE()),0)
            GROUP BY #SKU.SKU
-           option (recompile)""",
+           --option (recompile)""",
         5],
     2: ["""DROP TABLE IF EXISTS #Price%s
            SELECT DISTINCT #SKU.SKU, t.WebPrice as WebPrice%s, t.BasePrice as BasePrice%s, t.StartPrice as StartPrice%s
