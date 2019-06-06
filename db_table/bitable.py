@@ -1,10 +1,10 @@
 import pyodbc
 import pandas as pd
-from bi_sql_queries import *
+from db_table.bi_sql_queries import *
 
 
 class BeeEye:
-    def __init__(self, days=[1], predict_SKU=False, initialize_columns=[1, 1, 1, 1]):
+    def __init__(self, day=1, N=1, predict_SKU=False, initialize_columns=None):
         try:
             self.server = 'bidb04z1.o3.ru'
             self.database = 'BeeEye'
@@ -12,10 +12,16 @@ class BeeEye:
             self.password = 'spros'
             self.conn_info = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=' + self.server + ';DATABASE=' + self.database + ';UID=' + self.username + ';PWD=' + self.password
             self.skuInit = False
-            # дни, для которых нужно сделать прогноз
-            self.days = days
+            # день, для которого скачивается SKU с признаками
+            self.day = day
+            # промежуток N, за которые мы считаем определенные в bi_sql_queries historical_features признаки
+            self.N = N
             # признаки, которые будут юзаться
-            self.initializeColumns = initialize_columns
+            if initialize_columns is not None:
+                self.initialize_columns = initialize_columns
+            else:
+                self.initializeColumns = [sql_query[3] for sql_query in bi_sql_queries.values()]
+            # скачивать данные для предсказания или обучения
             self.predict_SKU = predict_SKU
             self.exception_create = "Can't create temporary table %s"
             self.exception_load = "Can't load temporary table %s"
@@ -34,9 +40,9 @@ class BeeEye:
         if self.skuInit:
             return
         try:
-            # self.predictSKU == 1 тогда и только тогда, когда таблица со сторонними SKU непуста
+            # self.predict_SKU == 1 тогда и только тогда, когда таблица со сторонними SKU непуста
             # другими словами, в данном случае мы выкачиваем данные для прогноза по этим SKU
-            # self.predictSKU == 0 когда мы хотим выкачить данные для обучения модели
+            # self.predict_SKU == 0 когда мы хотим выкачить данные для обучения модели
             self.cursor.execute(bi_sku_initialized_query[self.predict_SKU])
             self.cursor.commit()
             self.skuInit = True
@@ -58,26 +64,23 @@ class BeeEye:
         if feature_id not in bi_table:
             raise Exception("that feature doesn't exist")
         try:
+            # генерируем кол-во %s day (day, day, ...), которые нужно вставить в sql-запрос
+            str_format_days = [self.day] * bi_sql_queries[feature_id][1]
             # если feature является историческим
-            if bi_table[feature_id][0] in bi_historical_tables:
-                # то создаем временные таблички для всех feature на все дни в self.days
-                for day in self.days:
-                    # нулевой день не вытащить, так как данные загружаются в 3 часа ночи на след день
-                    if day == 0:
-                        # тут мб вообще это не нужно, не знаю пока
-                        continue
-                    # генерируем кол-во %s day (day, day, ...)
-                    str_format_days_tuple = [day] * bi_sql_queries[feature_id][1]
-                    self.cursor.execute((bi_sql_queries[feature_id][0] % tuple(str_format_days_tuple)))
-                    self.cursor.commit()
-            else:
-                self.cursor.execute(bi_sql_queries[feature_id][0])
-                self.cursor.commit()
+            # то к предпоследнему элементу добавляем промежуток N
+            # тут он равен 0, если признак не использует N, иначе self.N * 1/2/3/...
+            if bi_sql_queries[feature_id][2] > 0:
+                str_format_days[-2] += self.N * bi_sql_queries[feature_id][2]
+            # выполняем запрос
+            self.cursor.execute((bi_sql_queries[feature_id][0] % tuple(str_format_days)))
+            self.cursor.commit()
         except:
             raise Exception(self.exception_create % bi_table[feature_id][0])
 
     def get_feature(self, feature_id):
         "Каждую временную табличку можно выкачить отдельно"
+        # эта функция нужна на тот случай,
+        # если понадобится спарк(итоговая таблица со всеми признаками окажется слишком большой).
         try:
             sql_query = "select * from %s" % bi_table[feature_id][0]
             return pd.read_sql(sql_query, self.pyodbc_conn)
@@ -87,7 +90,7 @@ class BeeEye:
     # генерирует строку для создания временной таблицы, в которую объединяются все остальные
     def __get_result_query(self):
         "Возвращает строку для создания финальной таблицы в BeeEye"
-        query = """drop table if exists #result\nselect """
+        query = """select """
         group_by_columns = """"""
         for i in range(len(self.initializeColumns)):
             if self.initializeColumns[i]:
@@ -96,45 +99,33 @@ class BeeEye:
                     group_by_columns += "#SKU.SKU"
                     continue
                 for j in range(1, len(bi_table[i])):
-                    if bi_table[i][0] in bi_historical_tables:
-                        for day in self.days:
-                            query += ", %s%s.%s%s" % (bi_table[i][0], day, bi_table[i][j], day)
-                            group_by_columns += ", %s%s.%s%s" % (bi_table[i][0], day, bi_table[i][j], day)
-                    else:
-                        query += ", %s.%s" % (bi_table[i][0], bi_table[i][j])
-                        group_by_columns += ", %s.%s" % (bi_table[i][0], bi_table[i][j])
-        query += """\ninto #result\nfrom #SKU\n"""
+                    query += ", %s.%s" % (bi_table[i][0], bi_table[i][j])
+                    group_by_columns += ", %s.%s" % (bi_table[i][0], bi_table[i][j])
+        query += """\nfrom #SKU\n"""
         for i in range(len(self.initializeColumns)):
             if self.initializeColumns[i]:
                 if i == 0:
                     continue
-                if bi_table[i][0] in bi_historical_tables:
-                    for day in self.days:
-                        query += "left join %s%s on %s%s.SKU=%s.SKU\n" % (
-                            bi_table[i][0], day, bi_table[i][0], day, bi_table[0][0])
                 else:
                     query += "left join %s on %s.SKU=%s.SKU\n" % (bi_table[i][0], bi_table[i][0], bi_table[0][0])
         query += "group by " + group_by_columns
         return query
 
-    # создает таблицу
-    def __set_result(self):
+    def get_result(self):
+        "Возвращает объединенную таблицу, состоящую из всех фичей в BeeEye"
         try:
             self.__set_sku()
-            for i in range(1, len(self.initializeColumns)):
-                if self.initializeColumns[i]:
-                    self.__set_feature(i)
+            for feature_id in range(1, len(self.initializeColumns)):
+                if self.initializeColumns[feature_id]:
+                    self.__set_feature(feature_id)
             # print(self.__get_result_query())
-            self.cursor.execute(self.__get_result_query())
+            return pd.read_sql(self.__get_result_query(), self.pyodbc_conn)
         except:
-            raise Exception("Can't create temporary table #Result")
-
-    def get_result(self):
-        try:
-            self.__set_result()
-            return pd.read_sql("""SELECT * FROM #result""", self.pyodbc_conn)
-        except:
-            raise Exception("Can't load temporary table #result")
+            raise Exception("Can't load result table")
 
     def __del__(self):
         self.cursor.close()
+
+
+data = BeeEye(day=1, N=1).get_result()
+print(data)
