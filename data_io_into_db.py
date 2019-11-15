@@ -13,10 +13,10 @@ mae_table = "NK_SKU_mae"
 
 def save_data_in_db(dataframe, mode, zzzTempTableName=None):
     "Сохраняет функцию в таблицу в BeeEye"
-    server = 'bidb04z1.o3.ru'
-    database = 'BeeEye'
-    username = 'spros'
-    password = 'spros'
+    server = '#'
+    database = '#'
+    username = '#'
+    password = '#'
     conn_info = 'DRIVER={ODBC Driver 17 for SQL Server};SERVER=' + server + ';DATABASE=' + database + ';UID=' + username + ';PWD=' + password
     params = urllib.parse.quote_plus(conn_info)
     engine = create_engine("mssql+pymssql://spros:spros@bidb04z1.o3.ru/zzzTemp")
